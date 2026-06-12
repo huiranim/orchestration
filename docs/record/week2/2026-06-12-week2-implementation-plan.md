@@ -168,6 +168,7 @@ Expected: `Successfully installed ...` (수 분 소요).
 ```bash
 echo 'export AIRFLOW_HOME="$(dirname "$VIRTUAL_ENV")/.airflow"' >> .venv/bin/activate
 echo 'export AIRFLOW__CORE__DAGS_FOLDER="$(dirname "$VIRTUAL_ENV")/dags"' >> .venv/bin/activate
+echo 'export AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL=10' >> .venv/bin/activate
 source .venv/bin/activate
 echo $AIRFLOW_HOME && echo $AIRFLOW__CORE__DAGS_FOLDER
 ```
@@ -177,6 +178,8 @@ Expected:
 .../airflow/.airflow
 .../airflow/dags
 ```
+
+`DAG_DIR_LIST_INTERVAL` 기본값은 300초(5분)이므로 10으로 낮추지 않으면 신규 파일이 UI에 뜨기까지 최대 5분 대기하게 된다.
 
 - [ ] **Step 4: stub 테스트 실행**
 
@@ -267,16 +270,30 @@ with DAG(
 
 Working directory: `orchestration/airflow/`
 
+`airflow dags list`는 스케줄러가 MetaDB에 등록한 뒤에야 결과가 나온다. 파일 생성 직후에는 빈 결과가 나올 수 있으므로 DagBag으로 직접 파싱 확인:
+
 ```bash
 source .venv/bin/activate
-airflow dags list
+python -c "
+from airflow.models import DagBag
+import os
+bag = DagBag(dag_folder=os.environ['AIRFLOW__CORE__DAGS_FOLDER'], include_examples=False)
+print('DAGs:', list(bag.dag_ids))
+print('Errors:', bag.import_errors)
+"
 ```
 
-Expected: `p1_order_collection` 이 목록에 출력됨. 파싱 오류 시 에러 메시지와 함께 목록에서 누락.
+Expected:
+```
+DAGs: ['p1_order_collection']
+Errors: {}
+```
+
+`Errors`에 항목이 있으면 import 오류 메시지 확인 후 수정.
 
 - [ ] **Step 3: UI에서 DAG 수동 트리거**
 
-DAG 파일 생성 후 Airflow가 dags_folder를 재스캔하기까지 **약 30초** 소요. UI 새로고침 후 `p1_order_collection` DAG가 보이지 않으면 30초 대기 후 재시도.
+`DAG_DIR_LIST_INTERVAL=10`으로 설정했으므로 신규 파일은 약 10초 후 스케줄러에 감지된다. UI 새로고침 후 `p1_order_collection`이 보이지 않으면 10~15초 대기 후 재시도.
 
 http://localhost:8080 → `p1_order_collection` DAG → Trigger DAG (▶ 버튼).
 
