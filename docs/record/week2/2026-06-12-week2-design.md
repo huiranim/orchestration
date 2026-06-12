@@ -9,8 +9,8 @@
 
 | 항목 | 결정 | 근거 |
 |---|---|---|
-| Airflow 실행 방식 | `airflow standalone` (SQLite + LocalExecutor) | Docker 불필요, 2h 내 셋업 목표. Redis/Worker는 Week 3~4 시나리오 구현 시 추가 |
-| Dagster 실행 방식 | `dg dev` | 1주차 노트 기준. dagster CLI 최신 버전 |
+| Airflow 실행 방식 | `airflow standalone` (SQLite + SequentialExecutor) | Docker 불필요, 2h 내 셋업 목표. standalone은 SequentialExecutor로 뜸 — P1 순차 파이프라인에는 충분. Redis/Worker는 Week 3~4 시 추가 |
+| Dagster 실행 방식 | `dagster dev` | `dagster` 패키지 내장 공식 개발 서버 명령어. `dg`는 별도 패키지(`dagster-dg`)로 이 용도에 불필요 |
 | DB | SQLite (airflow standalone 기본값) | Postgres/MySQL 컨테이너 불필요 |
 | 환경 격리 | 각자 독립 venv | airflow와 dagster 의존성 충돌 방지 |
 | 미니 파이프라인 범위 | P1 T1→T2→T3 + SparkSession 포함, Pool/우선순위 제외 | 명세서 "실제 SparkSession 생성" 원칙 준수. 우선순위·동시성은 Week 3~4 |
@@ -52,17 +52,28 @@ orchestration/
 
 ### 전제 조건
 - Java 11+ 설치 확인: `java -version` (없으면 `brew install openjdk@11`)
+  - `brew install`은 PATH 심링크만 생성. PySpark는 JAVA_HOME을 직접 참조하므로 별도 설정 필요:
+    ```bash
+    export JAVA_HOME=$(brew --prefix openjdk@11)
+    # 영속화: ~/.zshrc 또는 venv activate 스크립트에 추가
+    ```
 - Python 3.11+ 설치 확인: `python --version`
 
 ### Airflow
 ```bash
 cd airflow/
 python -m venv .venv && source .venv/bin/activate
-pip install apache-airflow pyspark
 
-export AIRFLOW_HOME=$(pwd)/.airflow
+# 버전 고정 + 공식 constraints 파일로 의존성 충돌 방지
+pip install apache-airflow==2.10.4 pyspark \
+  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.4/constraints-3.11.txt"
+
+# AIRFLOW_HOME 영속화 — venv activate 스크립트에 추가해두면 터미널 재시작 후에도 유지
+echo 'export AIRFLOW_HOME="$(dirname "$VIRTUAL_ENV")/.airflow"' >> .venv/bin/activate
+source .venv/bin/activate  # 재로드
+
 airflow standalone
-# → http://localhost:8080
+# → http://localhost:8080 (admin / 콘솔에 출력되는 임시 패스워드)
 ```
 
 ### Dagster
@@ -71,23 +82,20 @@ cd dagster/
 python -m venv .venv && source .venv/bin/activate
 pip install dagster dagster-webserver pyspark
 
-dg dev
+dagster dev
 # → http://localhost:3000
 ```
 
 ### shared/stubs.py 참조 방법
-DAG/asset 파일 상단에 아래 추가 (파일 위치마다 깊이가 다름):
+Airflow `dags/p1_order_collection.py`와 Dagster `p1_order_collection/assets.py` 모두 저장소 루트(`orchestration/`)까지 정확히 2단계 상위. 동일한 한 줄로 처리:
 ```python
-import sys, os
-# 저장소 루트(orchestration/)를 기준으로 shared/ 경로 계산
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # airflow/dags/ 기준
-# Dagster assets.py는 한 단계 더 깊으므로: dirname 3번
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(ROOT, 'shared'))
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).parents[2] / 'shared'))
 from stubs import spark_task_stub
 ```
-- Airflow `dags/p1_order_collection.py`: `dirname` 2번 → `orchestration/`
-- Dagster `p1_order_collection/assets.py`: `dirname` 3번 → `orchestration/`
+- `airflow/dags/p1.py` → parents[2] = `orchestration/` ✓
+- `dagster/p1_order_collection/assets.py` → parents[2] = `orchestration/` ✓
 
 ---
 
@@ -103,8 +111,11 @@ T3. DW 적재         (stub: 8s)
 
 ### shared/stubs.py 공통 패턴
 ```python
+import os, sys, time
 from pyspark.sql import SparkSession
-import time
+
+# venv Python을 PySpark 드라이버로 고정 (Airflow 서브프로세스 환경에서 시스템 Python 참조 방지)
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 
 def spark_task_stub(task_name: str, duration_sec: int = 10, fail: bool = False):
     spark = SparkSession.builder.appName(task_name).master("local[*]").getOrCreate()
@@ -131,8 +142,9 @@ def spark_task_stub(task_name: str, duration_sec: int = 10, fail: bool = False):
 - 선택적 재실행 UI (T3 Clear & Re-run vs T3 Re-materialize 직접 실행)
 
 ## 2. 개념 기반 예측 항목 (1주차 학습 + 공식 문서)
-- 우선순위 + 동시성 제어 → Week 3~4에서 검증 예정
-- 크로스 파이프라인 의존성 → Week 6~7에서 검증 예정
+- Pool(Airflow) vs Concurrency limit(Dagster): 슬롯 수 설정 방식과 대기열 우선순위 정렬 동작 → Week 3~4에서 검증 예정 (시나리오 A/B 핵심)
+- 우선순위 제어: `priority_weight`(Airflow) vs `priority`(Dagster) → Week 3~4에서 검증 예정
+- 크로스 파이프라인 의존성: ExternalTaskSensor vs AssetSensor → Week 6~7에서 검증 예정
 
 ## 3. 도구 선택 및 근거
 - 선택: [Airflow / Dagster]
@@ -146,9 +158,10 @@ def spark_task_stub(task_name: str, duration_sec: int = 10, fail: bool = False):
 
 ## 6. 2주차 완료 기준
 
-- [ ] `airflow standalone` UI(8080) 접속 확인
-- [ ] `dg dev` UI(3000) 접속 확인
+- [ ] `airflow standalone` UI(8080) 접속 확인 (Executor: SequentialExecutor)
+- [ ] `dagster dev` UI(3000) 접속 확인
 - [ ] Airflow P1 DAG (T1→T2→T3 SparkSession stub) 실행 성공
+  - 주의: DAG 정의 시 `catchup=False` 필수 — 누락 시 과거 Run이 대량 생성됨
 - [ ] Dagster P1 Asset (동일 내용) materialization 성공
 - [ ] T3만 단독 재실행 — 양쪽 UI에서 각각 1회씩 수행
 - [ ] `docs/study/week2/05-비교분석.md` 작성 완료 (도구 선택 포함)
