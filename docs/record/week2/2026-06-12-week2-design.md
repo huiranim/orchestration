@@ -52,10 +52,13 @@ orchestration/
 
 ### 전제 조건
 - Java 11+ 설치 확인: `java -version` (없으면 `brew install openjdk@11`)
-  - `brew install`은 PATH 심링크만 생성. PySpark는 JAVA_HOME을 직접 참조하므로 별도 설정 필요:
+  - `brew install` 후 출력되는 caveats의 symlink 명령을 먼저 실행해야 `/usr/libexec/java_home`이 JDK를 인식함:
     ```bash
-    export JAVA_HOME=$(brew --prefix openjdk@11)
-    # 영속화: ~/.zshrc 또는 venv activate 스크립트에 추가
+    sudo ln -sfn $(brew --prefix openjdk@11)/libexec/openjdk.jdk \
+                 /Library/Java/JavaVirtualMachines/openjdk-11.jdk
+
+    export JAVA_HOME=$(/usr/libexec/java_home -v 11)
+    # 영속화: ~/.zshrc에 추가
     ```
 - Python 3.11+ 설치 확인: `python --version`
 
@@ -159,7 +162,7 @@ def spark_task_stub(task_name: str, duration_sec: int = 10, fail: bool = False):
 ## 6. 2주차 완료 기준
 
 - [ ] `airflow standalone` UI(8080) 접속 확인 (Executor: SequentialExecutor)
-- [ ] `dagster dev` UI(3000) 접속 확인
+- [ ] `dagster dev` UI(3000) 접속 확인 (자동 탐색 안 될 경우 `dagster dev -f definitions.py`)
 - [ ] Airflow P1 DAG (T1→T2→T3 SparkSession stub) 실행 성공
   - 주의: DAG 정의 시 `catchup=False` 필수 — 누락 시 과거 Run이 대량 생성됨
 - [ ] Dagster P1 Asset (동일 내용) materialization 성공
