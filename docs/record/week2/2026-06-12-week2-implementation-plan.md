@@ -107,10 +107,13 @@ os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 
 def spark_task_stub(task_name: str, duration_sec: int = 10, fail: bool = False):
     spark = SparkSession.builder.appName(task_name).master("local[*]").getOrCreate()
-    time.sleep(duration_sec)
-    if fail:
-        raise Exception(f"{task_name} intentionally failed")
-    spark.stop()
+    spark.sparkContext.setLogLevel("WARN")  # pytest 출력에서 INFO 로그 억제
+    try:
+        time.sleep(duration_sec)
+        if fail:
+            raise Exception(f"{task_name} intentionally failed")
+    finally:
+        spark.stop()  # 예외 발생 시에도 세션 정리
 ```
 
 - [ ] **Step 5: Commit (테스트는 Task 2에서 venv 설치 후 실행)**
@@ -141,6 +144,14 @@ pytest
 
 Working directory: `orchestration/airflow/`
 
+먼저 2.10.4가 PyPI에 존재하는지 확인:
+
+```bash
+pip index versions apache-airflow 2>/dev/null | head -1
+```
+
+`2.10.4`가 목록에 있으면 진행. 없으면 출력된 최신 2.10.x 버전으로 교체하고 constraints URL 버전 번호도 동일하게 맞춤.
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 
@@ -150,22 +161,29 @@ pip install apache-airflow==2.10.4 pyspark pytest \
 
 Expected: `Successfully installed ...` (수 분 소요).
 
-- [ ] **Step 3: AIRFLOW_HOME 영속화**
+- [ ] **Step 3: AIRFLOW_HOME + DAGS_FOLDER 영속화**
+
+`AIRFLOW_HOME`이 `.airflow/`이면 Airflow 기본 DAG 탐색 경로는 `.airflow/dags/`가 된다. 실제 DAG 파일은 `airflow/dags/`에 있으므로 `AIRFLOW__CORE__DAGS_FOLDER`로 명시적으로 지정해야 한다.
 
 ```bash
 echo 'export AIRFLOW_HOME="$(dirname "$VIRTUAL_ENV")/.airflow"' >> .venv/bin/activate
+echo 'export AIRFLOW__CORE__DAGS_FOLDER="$(dirname "$VIRTUAL_ENV")/dags"' >> .venv/bin/activate
 source .venv/bin/activate
-echo $AIRFLOW_HOME
+echo $AIRFLOW_HOME && echo $AIRFLOW__CORE__DAGS_FOLDER
 ```
 
-Expected: `.../airflow/.airflow` 경로 출력.
+Expected:
+```
+.../airflow/.airflow
+.../airflow/dags
+```
 
 - [ ] **Step 4: stub 테스트 실행**
 
 Working directory: `orchestration/` (airflow venv 활성화 상태 유지)
 
 ```bash
-cd ..
+cd ..  # orchestration/ 으로 이동
 python -m pytest shared/tests/test_stubs.py -v
 ```
 
@@ -180,10 +198,10 @@ PASSED shared/tests/test_stubs.py::test_stub_raises_on_fail
 
 - [ ] **Step 5: Airflow standalone 실행 및 UI 확인**
 
-Working directory: `orchestration/airflow/`
+Working directory: `orchestration/airflow/` (새 탭에서 시작 — standalone이 터미널을 점유함)
 
 ```bash
-source .venv/bin/activate
+cd airflow/ && source .venv/bin/activate
 airflow standalone
 ```
 
@@ -192,6 +210,8 @@ airflow standalone
 Expected: Airflow UI 대시보드 접속 성공.
 
 - [ ] **Step 6: Commit**
+
+**새 터미널 탭에서** (standalone이 실행 중인 탭 외):
 
 ```bash
 git add airflow/requirements.txt
@@ -249,14 +269,16 @@ Working directory: `orchestration/airflow/`
 
 ```bash
 source .venv/bin/activate
-python dags/p1_order_collection.py
+airflow dags list
 ```
 
-Expected: 아무 출력 없이 정상 종료.
+Expected: `p1_order_collection` 이 목록에 출력됨. 파싱 오류 시 에러 메시지와 함께 목록에서 누락.
 
 - [ ] **Step 3: UI에서 DAG 수동 트리거**
 
-`airflow standalone`이 실행 중인 상태에서 DAG Directory를 자동 감지. http://localhost:8080 → `p1_order_collection` DAG → Trigger DAG (▶ 버튼).
+DAG 파일 생성 후 Airflow가 dags_folder를 재스캔하기까지 **약 30초** 소요. UI 새로고침 후 `p1_order_collection` DAG가 보이지 않으면 30초 대기 후 재시도.
+
+http://localhost:8080 → `p1_order_collection` DAG → Trigger DAG (▶ 버튼).
 
 Expected:
 - `collect_orders` → `normalize_data` → `load_to_dw` 순서로 실행
