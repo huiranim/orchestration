@@ -10,7 +10,7 @@
 | 항목 | 결정 | 근거 |
 |---|---|---|
 | Airflow 실행 방식 | `airflow standalone` (SQLite + SequentialExecutor) | Docker 불필요, 2h 내 셋업 목표. standalone은 SequentialExecutor로 뜸 — P1 순차 파이프라인에는 충분. Redis/Worker는 Week 3~4 시 추가 |
-| Dagster 실행 방식 | `dagster dev` | `dagster` 패키지 내장 공식 개발 서버 명령어. `dg`는 별도 패키지(`dagster-dg`)로 이 용도에 불필요 |
+| Dagster 실행 방식 | `dagster dev` | `dagster` 패키지 내장 공식 개발 서버 명령어 |
 | DB | SQLite (airflow standalone 기본값) | Postgres/MySQL 컨테이너 불필요 |
 | 환경 격리 | 각자 독립 venv | airflow와 dagster 의존성 충돌 방지 |
 | 미니 파이프라인 범위 | P1 T1→T2→T3 + SparkSession 포함, Pool/우선순위 제외 | 명세서 "실제 SparkSession 생성" 원칙 준수. 우선순위·동시성은 Week 3~4 |
