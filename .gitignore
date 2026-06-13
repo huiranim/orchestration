@@ -11,6 +11,9 @@ dist/
 venv/
 env/
 
+# Airflow 런타임 데이터 (DB, 로그, 임시 패스워드, cfg 등 — 코드 아님)
+.airflow/
+
 # Spark
 spark-warehouse/
 metastore_db/
