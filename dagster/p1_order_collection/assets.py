@@ -31,4 +31,9 @@ def orders_normalized():
 @asset(deps=[orders_normalized])
 def orders_dw():
     """DW 적재 — Airflow의 load_to_dw에 대응. 시나리오 C의 선택적 재실행 대상."""
+    # [시나리오 C 검증용] 아래 두 줄 중 하나만 활성화.
+    #   - 평상시: 정상 동작 줄 사용
+    #   - 선택적 재실행 검증 시: fail=True 줄로 교체 → orders_dw만 실패시킨 뒤
+    #     orders_dw만 Re-materialize → 상류 자산 재실행 없이 orders_dw만 도는지 확인
     spark_task_stub("orders_dw", duration_sec=8)
+    # spark_task_stub("orders_dw", duration_sec=8, fail=True)
