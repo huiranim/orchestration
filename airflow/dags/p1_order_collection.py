@@ -32,10 +32,15 @@ with DAG(
         python_callable=spark_task_stub,
         op_kwargs={"task_name": "normalize_data", "duration_sec": 5},
     )
+    # [시나리오 C 검증용] 아래 두 줄 중 하나만 활성화.
+    #   - 평상시: 정상 동작 줄 사용
+    #   - T3 선택적 재실행 검증 시: fail=True 줄로 교체 → T3만 실패시킨 뒤
+    #     "T3만 Clear & Re-run"으로 T1·T2 재실행 없이 T3만 도는지 확인
     t3 = PythonOperator(
         task_id="load_to_dw",
         python_callable=spark_task_stub,
         op_kwargs={"task_name": "load_to_dw", "duration_sec": 8},
+        # op_kwargs={"task_name": "load_to_dw", "duration_sec": 8, "fail": True},
     )
 
     # >> 연산자로 실행 순서(의존성)를 선언: t1 다음 t2, 그 다음 t3
