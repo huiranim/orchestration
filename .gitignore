@@ -14,6 +14,10 @@ env/
 # Airflow 런타임 데이터 (DB, 로그, 임시 패스워드, cfg 등 — 코드 아님)
 .airflow/
 
+# Dagster 런타임 데이터는 제외하되, 설정 파일(dagster.yaml)은 추적
+dagster/.dagster_home/*
+!dagster/.dagster_home/dagster.yaml
+
 # Spark
 spark-warehouse/
 metastore_db/

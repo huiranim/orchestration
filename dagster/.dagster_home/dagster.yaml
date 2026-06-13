@@ -1,0 +1,9 @@
+# Dagster 인스턴스 설정.
+# DAGSTER_HOME 이 이 파일이 있는 디렉토리를 가리켜야 읽힌다.
+#
+# [우선순위/동시성 실험용]
+# pool 슬롯 기본 제한을 1로 설정 → @op(pool="spark") 들이 한 번에 1개만 실행 가능.
+# 이 제한 + dagster/priority 태그로 우선순위 순서 소비를 관찰한다.
+concurrency:
+  pools:
+    default_limit: 1
