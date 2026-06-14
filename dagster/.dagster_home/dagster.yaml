@@ -7,3 +7,10 @@
 concurrency:
   pools:
     default_limit: 1
+
+# [deadlock 방지] 풀 사용 시 run이 취소/실패하면 슬롯이 자동 반환되지 않아
+# default_limit:1에서는 영구 deadlock이 가능하다 (공식 문서 경고).
+# run 종료 후 일정 시간 뒤 슬롯을 자동 반환하도록 설정한다.
+run_monitoring:
+  enabled: true
+  free_slots_after_run_end_seconds: 60
