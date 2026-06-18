@@ -12,7 +12,7 @@ Dagster는 **데이터 결과물(Asset)**을 중심에 놓는다. 시스템을 �
 orders_raw ──→ orders_normalized ──→ orders_dw
 ```
 
-의존성을 표현할 때 실행 순서를 지정하는 게 아니라, **데이터 자산 간 관계(lineage)를 선언**한다. 실행 순서는 Dagster가 그 관계에서 추론한다.
+의존성을 표현할 때 실행 순서를 지정하는 게 아니라, **데이터 자산 간 관계(lineage)를 선언**한다. 실행 순서는 Dagster가 그 관계에서 추론한다. 이 lineage는 런타임에 데이터 흐름을 감시해 만드는 게 아니라 **정의를 로드하는 시점에 선언 구조로 정적 구성**되므로, 실행 전에 이미 전체 계보가 그려진다.
 
 Dagster UI(Dagit)의 핵심 화면이 **Asset Catalog**인 이유가 여기 있다 — 운영자가 "이 테이블이 언제 마지막으로 갱신됐는가"를 기준으로 시스템을 모니터링한다.
 
@@ -56,6 +56,8 @@ Dagster UI(Dagit)의 핵심 화면이 **Asset Catalog**인 이유가 여기 있�
 
 **Run Launcher vs Executor**: Run Launcher는 "Run 전체를 어디서 돌릴까" (프로세스를 어느 머신·컨테이너에 띄울지), Executor는 "그 Run 안에서 Op들을 어떻게 실행할까" (순차냐 병렬이냐). 결정하는 레이어가 다르다.
 
+**Daemon이 없으면**: UI에서 수동 materialize는 되지만 **스케줄·센서·Run 큐가 전부 작동하지 않는다** → 자동 파이프라인(P3 자정, P2의 P1 완료 감지 등) 정지. `dg dev`가 Webserver와 Daemon을 함께 띄우는 이유다.
+
 ---
 
 ## 3.3 Asset — 코드 작성 방식
@@ -83,6 +85,25 @@ def orders_dw():
 ```
 
 **의존성 표현**: `deps=[upstream_asset]` 파라미터로 **어떤 데이터 자산에 의존하는지 선언**. 실행 순서는 Dagster가 추론.
+
+**의존성 선언 두 방식 — `deps` vs 파라미터**
+
+자산 의존성은 두 가지로 선언할 수 있고, *데이터 값을 주입받느냐*에서 갈린다.
+
+| 방식 | 선언 | 데이터 값 | 용도 |
+|---|---|---|---|
+| **`deps`** | `@asset(deps=[upstream])` | 주입 안 됨 (의존성만) | 하류가 저장소에서 직접 읽거나 값 전달이 불필요할 때 |
+| **파라미터** | `def x(upstream)` | 상류 반환값이 **주입**되어 로직에서 사용 | 데이터를 함수 반환값으로 주고받을 때 |
+
+```python
+@dg.asset
+def orders_normalized(orders_raw):   # 파라미터로 받으면 orders_raw '값'이 주입됨
+    return orders_raw.dropna()
+```
+
+- **과제는 `deps` 방식**: 태스크가 `time.sleep` stub이고 Spark가 DW에 직접 적재·조회하므로 값 전달이 불필요.
+- 두 방식 모두 의존성을 선언하므로 **lineage·실행 순서는 동일**. 차이는 값 주입 여부뿐.
+- 파라미터 방식에서 값을 실제 저장·로드하는 건 **IO Manager**가 담당(기본 로컬 직렬화, 설정 시 Parquet·DW 테이블 등). `deps`는 값 전달이 없어 관여하지 않음.
 
 **데코레이터 4종류:**
 
@@ -184,7 +205,11 @@ def p2_trigger_sensor(context, asset_event):
 
 ## 3.6 동시성 제어
 
-Dagster의 동시성 제어는 **두 레벨**이다.
+Dagster의 동시성 제어는 **두 레벨**이다. 단, 둘 다 작동하려면 **Run Coordinator가 `QueuedRunCoordinator`** 여야 한다.
+
+**Run Coordinator** — Run 제출 시 즉시 시작할지 큐에 넣을지 결정.
+- `DefaultRunCoordinator`: 제출 즉시 시작 (한도·우선순위 없음)
+- `QueuedRunCoordinator`: Run을 큐에 넣어 한도·우선순위 적용 → **동시성·우선순위 제어의 전제**. 큐 소비는 Daemon이 담당.
 
 ### 레벨 1 — Run 레벨
 
@@ -215,6 +240,8 @@ concurrency:
 ```
 
 태그 기반으로 선언한다. 우선순위는 Job/Run 레벨에서 `priority` 파라미터로 설정한다.
+
+**granularity 주의**: Dagster에서 **우선순위는 Run 수준**(큐에서 Run을 꺼내는 순서), **슬롯 제한은 스텝(op/asset) 수준**(Concurrency Key)이라 두 제어가 노는 층위가 다르다. 과제처럼 *태스크 단위* 우선순위 선점(시나리오 A)을 정밀히 재현할 땐 이 층위 차이를 고려해야 한다.
 
 ---
 
