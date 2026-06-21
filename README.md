@@ -98,4 +98,6 @@ python -m pytest shared/tests/test_stubs.py -v
 | 크로스 파이프라인 우선순위 | `airflow/dags/cross_dag_priority.py` | `dagster/cross_job_priority.py` |
 | 공유 stub | `shared/stubs.py` (양쪽 공유) | |
 
-비교 분석 및 도구 선택 현황: `docs/study/week2/05-비교분석.md` (현재 도구 선택 보류, 3주차 초반 확정 예정)
+비교 분석 및 도구 선택: `docs/study/week2/05-비교분석.md`
+→ **도구 선택 결정: 이 과제는 Dagster로 진행** (새 패러다임 학습 목적). 실무 didimdp 적용은 Airflow로 별도 트랙.
+3주차부터 Dagster로 P1~P4 전체 시나리오를 구현한다.

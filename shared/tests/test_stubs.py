@@ -20,4 +20,3 @@ def test_stub_raises_on_fail():
     # pytest.raises: 블록 안에서 해당 예외가 나지 않으면 테스트 실패
     with pytest.raises(Exception, match="test_task intentionally failed"):
         spark_task_stub("test_task", duration_sec=0, fail=True)
-ㅎㅎ
